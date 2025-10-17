@@ -1,0 +1,214 @@
+// 4-stage pipelined processor (Verilog)
+// Stages: IF -> ID -> EX -> MEM/WB (MEM and WB merged)
+// Supports: ADD, SUB, AND, LOAD (load from data memory)
+// Simple 16-bit instruction: [15:12] opcode, [11:8] rd, [7:4] rs1, [3:0] rs2/imm4
+// Opcodes:
+// 4'b0000: ADD  rd, rs1, rs2
+// 4'b0001: SUB  rd, rs1, rs2
+// 4'b0010: AND  rd, rs1, rs2
+// 4'b0011: LOAD rd, imm4(rs1)  ; imm4 zero-extended
+
+`timescale 1ns/1ps
+module pipelined_cpu(input clk, input reset);
+  // Program/instruction memory (simple ROM)
+  reg [15:0] imem [0:255];
+
+  // Data memory
+  reg [15:0] dmem [0:255];
+
+  // Register file 16 x 16-bit
+  reg [15:0] regfile [0:15];
+
+  // PC
+  reg [7:0] pc;
+
+  // Pipeline registers
+  // IF/ID
+  reg [15:0] if_id_instr;
+  reg [7:0]  if_id_pc;
+
+  // ID/EX
+  reg [3:0] id_ex_opcode, id_ex_rd, id_ex_rs1, id_ex_rs2_or_imm4;
+  reg [15:0] id_ex_rs1_val, id_ex_rs2_val;
+  reg [7:0]  id_ex_pc;
+
+  // EX/MEM (MEM/WB merged stage contains result)
+  reg [3:0] ex_mem_opcode, ex_mem_rd;
+  reg [15:0] ex_mem_alu_out;
+  reg [15:0] ex_mem_mem_addr; // for load
+  reg        ex_mem_is_load;
+
+  integer i;
+
+  // Initialize memories/registers
+  initial begin
+    for (i=0;i<256;i=i+1) begin
+      imem[i] = 16'h0000;
+      dmem[i] = 16'h0000;
+    end
+    for (i=0;i<16;i=i+1) regfile[i]=16'h0000;
+
+    // Small test program (assembled into imem):
+    // Address  Instruction (format shown as assembly comment)
+    // 0: LOAD r1, 0(r0)   ; r1 <= dmem[0]
+    // 1: LOAD r2, 1(r0)   ; r2 <= dmem[1]
+    // 2: ADD  r3, r1, r2  ; r3 <= r1 + r2
+    // 3: SUB  r4, r3, r1  ; r4 <= r3 - r1
+    // 4: AND  r5, r1, r2  ; r5 <= r1 & r2
+    // 5: NOP
+
+    // Assembler helper: opcode[15:12], rd[11:8], rs1[7:4], rs2/imm[3:0]
+    imem[0] = {4'b0011, 4'd1, 4'd0, 4'd0}; // LOAD r1, 0(r0)
+    imem[1] = {4'b0011, 4'd2, 4'd0, 4'd1}; // LOAD r2, 1(r0)
+    imem[2] = {4'b0000, 4'd3, 4'd1, 4'd2}; // ADD r3, r1, r2
+    imem[3] = {4'b0001, 4'd4, 4'd3, 4'd1}; // SUB r4, r3, r1
+    imem[4] = {4'b0010, 4'd5, 4'd1, 4'd2}; // AND r5, r1, r2
+    imem[5] = 16'h0000; // NOP (treated as ADD r0,r0,r0)
+
+    // Initialize data memory values
+    dmem[0] = 16'd10; // mem[0] = 10
+    dmem[1] = 16'd20; // mem[1] = 20
+
+    pc = 8'd0;
+
+    // flush pipeline registers
+    if_id_instr = 16'h0000; if_id_pc = 0;
+    id_ex_opcode = 0; id_ex_rd = 0; id_ex_rs1 = 0; id_ex_rs2_or_imm4=0; id_ex_rs1_val = 0; id_ex_rs2_val = 0; id_ex_pc = 0;
+    ex_mem_opcode = 0; ex_mem_rd = 0; ex_mem_alu_out = 0; ex_mem_is_load = 0; ex_mem_mem_addr = 0;
+  end
+
+  // Instruction Fetch
+  always @(posedge clk) begin
+    if (reset) begin
+      pc <= 8'd0;
+      if_id_instr <= 16'h0000;
+      if_id_pc <= 8'd0;
+    end else begin
+      // Fetch instruction and advance PC
+      if_id_instr <= imem[pc];
+      if_id_pc <= pc;
+      pc <= pc + 1;
+    end
+  end
+
+  // Decode stage
+  always @(posedge clk) begin
+    if (reset) begin
+      id_ex_opcode <= 4'd0; id_ex_rd <= 0; id_ex_rs1 <= 0; id_ex_rs2_or_imm4 <= 0; id_ex_rs1_val <= 0; id_ex_rs2_val <= 0; id_ex_pc <= 0;
+    end else begin
+      id_ex_opcode <= if_id_instr[15:12];
+      id_ex_rd <= if_id_instr[11:8];
+      id_ex_rs1 <= if_id_instr[7:4];
+      id_ex_rs2_or_imm4 <= if_id_instr[3:0];
+
+      // Read register file values (simple, no structural hazards assumed)
+      id_ex_rs1_val <= regfile[if_id_instr[7:4]];
+      id_ex_rs2_val <= regfile[if_id_instr[3:0]]; // for ALU ops
+      id_ex_pc <= if_id_pc;
+    end
+  end
+
+  // Execute stage
+  always @(posedge clk) begin
+    if (reset) begin
+      ex_mem_opcode <= 0; ex_mem_rd <= 0; ex_mem_alu_out <= 0; ex_mem_is_load <= 0; ex_mem_mem_addr <= 0;
+    end else begin
+      ex_mem_opcode <= id_ex_opcode;
+      ex_mem_rd <= id_ex_rd;
+      ex_mem_is_load <= (id_ex_opcode == 4'b0011);
+
+      case (id_ex_opcode)
+        4'b0000: begin // ADD
+          ex_mem_alu_out <= id_ex_rs1_val + id_ex_rs2_val;
+          ex_mem_mem_addr <= 16'h0000;
+        end
+        4'b0001: begin // SUB
+          ex_mem_alu_out <= id_ex_rs1_val - id_ex_rs2_val;
+          ex_mem_mem_addr <= 16'h0000;
+        end
+        4'b0010: begin // AND
+          ex_mem_alu_out <= id_ex_rs1_val & id_ex_rs2_val;
+          ex_mem_mem_addr <= 16'h0000;
+        end
+        4'b0011: begin // LOAD rd, imm4(rs1)
+          ex_mem_mem_addr <= id_ex_rs1_val + {{12{1'b0}}, id_ex_rs2_or_imm4}; // zero-extend imm4
+          ex_mem_alu_out <= 16'h0000; // unused
+        end
+        default: begin
+          ex_mem_alu_out <= 16'h0000;
+          ex_mem_mem_addr <= 16'h0000;
+        end
+      endcase
+    end
+  end
+
+  // Memory/Writeback stage (combined)
+  always @(posedge clk) begin
+    if (reset) begin
+      // nothing
+    end else begin
+      if (ex_mem_opcode == 4'b0011) begin // LOAD
+        // read from dmem and write to rd
+        regfile[ex_mem_rd] <= dmem[ex_mem_mem_addr[7:0]];
+      end else begin
+        // ALU result writeback
+        regfile[ex_mem_rd] <= ex_mem_alu_out;
+      end
+
+      // For demonstration we don't handle R0 write protection; allow writes to r0 for simplicity
+    end
+  end
+
+  // Helper tasks to expose pipeline registers for testbench printing
+  function [15:0] get_if_id_instr(); begin get_if_id_instr = if_id_instr; end endfunction
+  function [7:0]  get_if_id_pc();    begin get_if_id_pc = if_id_pc;    end endfunction
+  function [3:0]  get_id_ex_opcode();begin get_id_ex_opcode = id_ex_opcode; end endfunction
+  function [3:0]  get_id_ex_rd();    begin get_id_ex_rd = id_ex_rd;    end endfunction
+  function [15:0] get_id_ex_rs1_val(); begin get_id_ex_rs1_val = id_ex_rs1_val; end endfunction
+  function [15:0] get_id_ex_rs2_val(); begin get_id_ex_rs2_val = id_ex_rs2_val; end endfunction
+  function [3:0]  get_ex_mem_opcode(); begin get_ex_mem_opcode = ex_mem_opcode; end endfunction
+  function [3:0]  get_ex_mem_rd();     begin get_ex_mem_rd = ex_mem_rd;     end endfunction
+  function [15:0] get_ex_mem_alu_out(); begin get_ex_mem_alu_out = ex_mem_alu_out; end endfunction
+  function [15:0] get_ex_mem_mem_addr(); begin get_ex_mem_mem_addr = ex_mem_mem_addr; end endfunction
+
+endmodule
+
+// Testbench with detailed per-stage printouts and waveform dump
+module tb();
+  reg clk;
+  reg reset;
+  integer cycle;
+
+  pipelined_cpu cpu(.clk(clk), .reset(reset));
+
+  initial begin
+    clk = 0; reset = 1; cycle = 0;
+    $dumpfile("wave.vcd");
+    $dumpvars(0, cpu);
+    #5; reset = 0;
+
+    $display("Starting simulation - detailed per-stage outputs
+");
+
+    // Run for enough cycles to finish program (program length 6 instructions -> pipeline depth 4 -> ~14 cycles)
+    for (cycle=0; cycle<20; cycle=cycle+1) begin
+      // Rising edge actions
+      #5; clk = 1;
+      // Print pipeline register and stage info on rising edge (after state update)
+      $display("Cycle %0d - Time %0t ns", cycle, $time);
+      $display(" IF/ID: PC=%0d INSTR=0x%0h", cpu.get_if_id_pc(), cpu.get_if_id_instr());
+      $display(" ID/EX: OPC=0x%0h RD=%0d RS1_VAL=%0d RS2_VAL=%0d", cpu.get_id_ex_opcode(), cpu.get_id_ex_rd(), cpu.get_id_ex_rs1_val(), cpu.get_id_ex_rs2_val());
+      $display(" EX/MEM: OPC=0x%0h RD=%0d ALU_OUT=%0d MEM_ADDR=%0d", cpu.get_ex_mem_opcode(), cpu.get_ex_mem_rd(), cpu.get_ex_mem_alu_out(), cpu.get_ex_mem_mem_addr());
+      $display(" Regs: r0=%0d r1=%0d r2=%0d r3=%0d r4=%0d r5=%0d
+", cpu.regfile[0], cpu.regfile[1], cpu.regfile[2], cpu.regfile[3], cpu.regfile[4], cpu.regfile[5]);
+
+      #5; clk = 0; // falling edge
+    end
+
+    // Dump final values
+    $display("Final registers:");
+    for (integer r=0; r<6; r=r+1) $display("r%0d = %0d", r, cpu.regfile[r]);
+
+    $finish;
+  end
+endmodule
