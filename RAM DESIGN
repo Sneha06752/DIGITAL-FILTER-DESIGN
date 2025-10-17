@@ -1,0 +1,216 @@
+Design: Synchronous RAM (Verilog Code)
+//===============================
+// Simple Synchronous RAM
+//===============================
+module sync_ram (
+    input clk,                  // Clock signal
+    input we,                   // Write enable (1 = write, 0 = read)
+    input [3:0] addr,           // 4-bit address (16 memory locations)
+    input [7:0] data_in,        // Data input
+    output reg [7:0] data_out   // Data output
+);
+
+    // Memory array of 16 x 8-bit
+    reg [7:0] mem [0:15];
+
+    always @(posedge clk) begin
+        if (we) begin
+            mem[addr] <= data_in;   // Write operation
+        end else begin
+            data_out <= mem[addr];  // Read operation
+        end
+    end
+
+endmodule
+
+Testbench for the Synchronous RAM
+//===============================
+// Testbench for sync_ram
+//===============================
+module sync_ram_tb;
+
+    reg clk;
+    reg we;
+    reg [3:0] addr;
+    reg [7:0] data_in;
+    wire [7:0] data_out;
+
+    // Instantiate the RAM module
+    sync_ram uut (
+        .clk(clk),
+        .we(we),
+        .addr(addr),
+        .data_in(data_in),
+        .data_out(data_out)
+    );
+
+    // Clock generation
+    initial clk = 0;
+    always #5 clk = ~clk;  // 10ns clock period
+
+    // Test sequence
+    initial begin
+        // Monitor signals
+        $monitor("Time=%0t | WE=%b | Addr=%h | Data_in=%h | Data_out=%h", $time, we, addr, data_in, data_out);
+
+        // Step 1: Write data into memory
+        we = 1;
+        addr = 4'b0000; data_in = 8'hAA; #10;
+        addr = 4'b0001; data_in = 8'hBB; #10;
+        addr = 4'b0010; data_in = 8'hCC; #10;
+
+        // Step 2: Read back data
+        we = 0;
+        addr = 4'b0000; #10;
+        addr = 4'b0001; #10;
+        addr = 4'b0010; #10;
+
+        // Finish simulation
+        $finish;
+    end
+
+endmodule
+
+Verilog Code — Synchronous RAM
+//=============================================
+// Title     : Simple Synchronous RAM
+// Function  : Performs read and write operations
+// Author    : Divya Suguri (Example)
+//=============================================
+module sync_ram (
+    input clk,                  // Clock input
+    input we,                   // Write enable (1 = write, 0 = read)
+    input [3:0] addr,           // 4-bit address (16 locations)
+    input [7:0] data_in,        // 8-bit input data
+    output reg [7:0] data_out   // 8-bit output data
+);
+
+    // Memory declaration: 16 x 8-bit
+    reg [7:0] mem [0:15];
+
+    always @(posedge clk) begin
+        if (we)
+            mem[addr] <= data_in;   // Write data on clock edge
+        else
+            data_out <= mem[addr];  // Read data on clock edge
+    end
+
+endmodule
+//=============================================
+// Title     : Simple Synchronous RAM
+// Function  : Performs read and write operations
+// Author    : Divya Suguri (Example)
+//=============================================
+module sync_ram (
+    input clk,                  // Clock input
+    input we,                   // Write enable (1 = write, 0 = read)
+    input [3:0] addr,           // 4-bit address (16 locations)
+    input [7:0] data_in,        // 8-bit input data
+    output reg [7:0] data_out   // 8-bit output data
+);
+
+    // Memory declaration: 16 x 8-bit
+    reg [7:0] mem [0:15];
+
+    always @(posedge clk) begin
+        if (we)
+            mem[addr] <= data_in;   // Write data on clock edge
+        else
+            data_out <= mem[addr];  // Read data on clock edge
+    end
+
+endmodule
+//=============================================
+// Title     : Simple Synchronous RAM
+// Function  : Performs read and write operations
+// Author    : Divya Suguri (Example)
+//=============================================
+module sync_ram (
+    input clk,                  // Clock input
+    input we,                   // Write enable (1 = write, 0 = read)
+    input [3:0] addr,           // 4-bit address (16 locations)
+    input [7:0] data_in,        // 8-bit input data
+    output reg [7:0] data_out   // 8-bit output data
+);
+
+    // Memory declaration: 16 x 8-bit
+    reg [7:0] mem [0:15];
+
+    always @(posedge clk) begin
+        if (we)
+            mem[addr] <= data_in;   // Write data on clock edge
+        else
+            data_out <= mem[addr];  // Read data on clock edge
+    end
+
+endmodule
+
+Testbench for the Synchronous RAM
+//=============================================
+// Testbench for Synchronous RAM
+//=============================================
+`timescale 1ns/1ps
+
+module sync_ram_tb;
+
+    reg clk;
+    reg we;
+    reg [3:0] addr;
+    reg [7:0] data_in;
+    wire [7:0] data_out;
+
+    // Instantiate the design under test
+    sync_ram uut (
+        .clk(clk),
+        .we(we),
+        .addr(addr),
+        .data_in(data_in),
+        .data_out(data_out)
+    );
+
+    // Clock generation: 10 ns period
+    initial clk = 0;
+    always #5 clk = ~clk;
+
+    // Test sequence
+    initial begin
+        $dumpfile("sync_ram_tb.vcd"); // For waveform (if using GTKWave)
+        $dumpvars(0, sync_ram_tb);
+        $display("Time | WE | Addr | Data_in | Data_out | Operation");
+        $display("------------------------------------------------------");
+
+        // Write operations
+        we = 1;
+        addr = 4'b0000; data_in = 8'hAA; #10;
+        $display("%4t |  %b |  %h |    %h   |    XX   | Write 0xAA to addr 0", $time, we, addr, data_in);
+
+        addr = 4'b0001; data_in = 8'hBB; #10;
+        $display("%4t |  %b |  %h |    %h   |    XX   | Write 0xBB to addr 1", $time, we, addr, data_in);
+
+        addr = 4'b0010; data_in = 8'hCC; #10;
+        $display("%4t |  %b |  %h |    %h   |    XX   | Write 0xCC to addr 2", $time, we, addr, data_in);
+
+        // Read operations
+        we = 0;
+        addr = 4'b0000; #10;
+        $display("%4t |  %b |  %h |    --   |    %h   | Read from addr 0", $time, we, addr, data_out);
+
+        addr = 4'b0001; #10;
+        $display("%4t |  %b |  %h |    --   |    %h   | Read from addr 1", $time, we, addr, data_out);
+
+        addr = 4'b0010; #10;
+        $display("%4t |  %b |  %h |    --   |    %h   | Read from addr 2", $time, we, addr, data_out);
+
+        $finish;
+    end
+
+endmodule
+
+Time | WE | Addr | Data_in | Data_out | Operation
+------------------------------------------------------
+ 10 |  1 |  0 |    AA   |    XX   | Write 0xAA to addr 0
+ 20 |  1 |  1 |    BB   |    XX   | Write 0xBB to addr 1
+ 30 |  1 |  2 |    CC   |    XX   | Write 0xCC to addr 2
+ 40 |  0 |  0 |    --   |    AA   | Read from addr 0
+ 50 |  0 |  1 |    --   |    BB   | Read from addr 1
+ 60 |  0 |  2 |    --   |    CC   | Read from addr 2
